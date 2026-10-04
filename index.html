@@ -83,14 +83,14 @@ const WW = 360, HH = 640, N = 5;
 const C = {x: 30, y: 110, w: 300, h: 480, net: 350};
 const st = makeStage(document.getElementById("c"), WW, HH), ctx = st.ctx, fx = confettiSys();
 const $ = id => document.getElementById(id);
-const START = {x: 180, y: 540};
-let candles, serves, misses, flight, drag, msg, over, rally, px = 180;
-const PAD_Y = 566, PAD_W = 74, R = 10;
+const START = {x: 180, y: 508};
+let candles, serves, misses, flight, drag, msg, over, rally, px = 180, py = 556, pvx = 0, pvy = 0;
+const PAD_W = 54, PAD_H = 60, R = 10, PY_MIN = C.net + 42, PY_MAX = C.y + C.h - 40;
 
 function newGame(){
   candles = [];
   for (let i = 0; i < N; i++) candles.push({bx: 75 + i * 52.5, y: 150 + (i % 2) * 70 + (i === 2 ? 40 : 0), amp: 18 + (i % 3) * 8, sp: .8 + i * .17, ph: i * 1.3, lit: false});
-  serves = 0; misses = 0; rally = null; px = 180; flight = null; drag = null; msg = null; over = false;
+  serves = 0; misses = 0; rally = null; px = 180; py = 556; flight = null; drag = null; msg = null; over = false;
 }
 const cx = c => c.lit ? c.fx : c.bx + Math.sin(performance.now() / 1000 * c.sp + c.ph) * c.amp;
 
@@ -100,7 +100,8 @@ function target(d){   // landing point from drag vector (pull back to shoot)
   if (len < 8) return null;
   return {x: START.x + dx / len * p * 470, y: START.y + dy / len * p * 470, p};
 }
-const setPx = e => { px = Math.max(C.x + PAD_W / 2, Math.min(C.x + C.w - PAD_W / 2, st.pt(e).x)); };
+const setPx = e => { const p = st.pt(e), lift = e.pointerType === "touch" ? 56 : 0;   // on touch, hold the paddle above the finger
+  px = Math.max(C.x + PAD_W / 2, Math.min(C.x + C.w - PAD_W / 2, p.x)); py = Math.max(PY_MIN, Math.min(PY_MAX, p.y - lift)); };
 addEventListener("pointerdown", e => { if (over) return; if (rally){ setPx(e); return; } if (flight) return; const p = st.pt(e); drag = {sx: p.x, sy: p.y, x: p.x, y: p.y}; });
 addEventListener("pointermove", e => { if (rally && !over) setPx(e); else if (drag){ const p = st.pt(e); drag.x = p.x; drag.y = p.y; } });
 const keys = {}; addEventListener("keydown", e => keys[e.key] = 1); addEventListener("keyup", e => keys[e.key] = 0);
@@ -126,6 +127,9 @@ function land(p){
 function stepRally(){
   if (keys.ArrowLeft) px = Math.max(C.x + PAD_W / 2, px - 6);
   if (keys.ArrowRight) px = Math.min(C.x + C.w - PAD_W / 2, px + 6);
+  if (keys.ArrowUp) py = Math.max(PY_MIN, py - 6);
+  if (keys.ArrowDown) py = Math.min(PY_MAX, py + 6);
+  pvx = px - (stepRally.lx ?? px); pvy = py - (stepRally.ly ?? py); stepRally.lx = px; stepRally.ly = py;
   const b = rally;
   if (b.wait > 0){ b.wait--; return; }
   for (let i = 0; i < 2; i++){
@@ -134,13 +138,14 @@ function stepRally(){
     if (b.x > C.x + C.w - R){ b.x = C.x + C.w - R; b.vx = -Math.abs(b.vx); beep(500, .03); }
     if (b.y < C.y + R){ b.y = C.y + R; b.vy = Math.abs(b.vy); beep(420, .03); }
     for (const c of candles) if (!c.lit && Math.hypot(b.x - cx(c), b.y - c.y) < R + 16){ light(c, cx(c)); msg = {x: cx(c), y: c.y, t: 50, ring: "#ffd23f", text: "Lit!"}; }
-    if (b.vy > 0 && b.y + R >= PAD_Y && b.y + R <= PAD_Y + 14 && Math.abs(b.x - px) < PAD_W / 2 + R){
+    const qx = Math.max(px - PAD_W / 2, Math.min(b.x, px + PAD_W / 2)), qy = Math.max(py - PAD_H / 2, Math.min(b.y, py + PAD_H / 2));
+    if (b.vy > 0 && Math.hypot(b.x - qx, b.y - qy) < R){
       const off = Math.max(-1, Math.min(1, (b.x - px) / (PAD_W / 2)));
-      b.sp = Math.min(6.4, b.sp + .1); b.vx = off * b.sp * .85; b.vy = -Math.sqrt(Math.max(b.sp * b.sp - b.vx * b.vx, 4));
-      b.y = PAD_Y - R; beep(660, .04);
+      b.sp = Math.min(6.4, b.sp + .1); b.vx = Math.max(-b.sp * .9, Math.min(b.sp * .9, off * b.sp * .85 + pvx * .15)); b.vy = -Math.sqrt(Math.max(b.sp * b.sp - b.vx * b.vx, 4));
+      b.y = py - PAD_H / 2 - R; beep(660, .04);
     }
     if (b.y > C.y + C.h + 20 && !over){
-      misses++; rally = null; px = 180; msg = {x: 180, y: 500, t: 60, ring: "#ff6f6f", text: "Missed - serve again"}; beep(190, .2, "sawtooth", .07); return;
+      misses++; rally = null; px = 180; py = 556; stepRally.lx = undefined; msg = {x: 180, y: 500, t: 60, ring: "#ff6f6f", text: "Missed - serve again"}; beep(190, .2, "sawtooth", .07); return;
     }
   }
 }
@@ -197,6 +202,30 @@ function finish(){
   for (let i = 0; i < 5; i++) setTimeout(() => fx.burst(60 + Math.random() * 240, 250, 60), i * 200);
 }
 
+function drawPaddle(x, y){
+  const w = PAD_W, h = PAD_H, top = y - h / 2;
+  ctx.save(); ctx.translate(x, 0);
+  // handle + grip
+  ctx.fillStyle = "#1c1c1c"; ctx.beginPath(); ctx.roundRect(-6, y + h / 2 - 4, 12, 40, 4); ctx.fill();
+  ctx.strokeStyle = "#555"; ctx.lineWidth = 1.5;
+  for (let k = 0; k < 6; k++){ ctx.beginPath(); ctx.moveTo(-6, y + h / 2 + 8 + k * 5); ctx.lineTo(6, y + h / 2 + 3 + k * 5); ctx.stroke(); }
+  ctx.fillStyle = "#333"; ctx.beginPath(); ctx.roundRect(-8, y + h / 2 + 34, 16, 6, 3); ctx.fill();
+  // throat
+  ctx.fillStyle = "#1c1c1c"; ctx.beginPath(); ctx.moveTo(-14, y + h / 2 - 8); ctx.lineTo(14, y + h / 2 - 8); ctx.lineTo(6, y + h / 2 + 2); ctx.lineTo(-6, y + h / 2 + 2); ctx.fill();
+  // edge guard
+  ctx.fillStyle = "#1c1c1c"; ctx.beginPath(); ctx.roundRect(-w / 2 - 4, top - 4, w + 8, h + 8, 20); ctx.fill();
+  // face
+  const g = ctx.createLinearGradient(-w / 2, top, w / 2, top + h); g.addColorStop(0, "#ff7eb0"); g.addColorStop(1, "#e0457f");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(-w / 2, top, w, h, 17); ctx.fill();
+  // honeycomb texture
+  ctx.save(); ctx.clip(); ctx.fillStyle = "rgba(0,0,0,.14)";
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 7; c++){ ctx.beginPath(); ctx.arc(-w / 2 + 5 + c * 8 + (r % 2) * 4, top + 5 + r * 7, 1.6, 0, 7); ctx.fill(); }
+  ctx.restore();
+  // sweet spot + shine
+  ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, y, 10, 0, 7); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.beginPath(); ctx.ellipse(-w * .22, top + h * .25, 5, 14, .3, 0, 7); ctx.fill();
+  ctx.restore();
+}
 function draw(){
   st.begin();
   ctx.fillStyle = "#14604a"; ctx.fillRect(0, 0, WW, HH);
@@ -249,10 +278,7 @@ function draw(){
   ctx.fillStyle = "#8aa300";
   for (const [dx, dy] of [[0,0],[-.45,-.3],[.45,-.3],[-.3,.5],[.3,.5],[0,-.7]]){ ctx.beginPath(); ctx.arc(bx + dx * r, by - z + dy * r, r * .14, 0, 7); ctx.fill(); }
   // paddle at start
-  { const rx = rally ? px : START.x, ry = rally ? PAD_Y : START.y + 22;
-    ctx.fillStyle = "#ffd23f"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(rx - PAD_W / 2, ry, PAD_W, 22, 10); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#333"; ctx.fillRect(rx - 4, ry + 20, 8, 20); }
+  drawPaddle(rally ? px : START.x, rally ? py : 556);
 
   if (msg && msg.t > 0){
     msg.t--; ctx.globalAlpha = Math.min(1, msg.t / 20);
@@ -266,14 +292,14 @@ function draw(){
   ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "800 22px system-ui,sans-serif";
   ctx.fillText("Light the candles!", 180, 38);
   ctx.font = "15px system-ui,sans-serif"; ctx.globalAlpha = .85;
-  ctx.fillText(rally ? "Slide your paddle to bounce the ball" : "Pull back from the ball, release to serve", 180, 62);
+  ctx.fillText(rally ? "Move your paddle to hit the ball" : "Pull back from the ball, release to serve", 180, 62);
   ctx.globalAlpha = 1;
   ctx.font = "700 16px system-ui,sans-serif"; ctx.fillText("Lit " + candles.filter(c => c.lit).length + "/" + N + " · Misses " + misses, 180, 92);
 }
 
 $("art").innerHTML = CAKE_SVG;
 $("oh").textContent = NAME + "'s Serve Challenge";
-$("op").textContent = "Pull back and release to serve. Once it lands the ball keeps bouncing: slide your paddle to return it and knock it into every candle.";
+$("op").textContent = "Pull back and release to serve. Once it lands the ball keeps bouncing: move your paddle around your half to return it and knock it into every candle.";
 $("song").onclick = playSong;
 $("go").onclick = () => { raining = false; stopSong(); $("song").style.display = "none"; newGame(); $("overlay").classList.add("hide"); beep(660, .08); };
 newGame();
